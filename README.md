@@ -1,46 +1,89 @@
 # m6APrediction
 
-使用 Practical 5 已训练的 Random Forest，对单个位点或批量 RNA 特征预测 m6A。提供两个公开函数和一个内部 DNA 编码函数。模型不在预测时重新训练。
+m6APrediction is a BIO215 R package for predicting N6-methyladenosine (m6A) sites from nucleotide context and transcript features. It uses a fitted random forest to score individual candidate sites or batches of sites.
 
-## 安装
+## Features
+
+- Score one candidate site with `prediction_single()` or a feature table with `prediction_multiple()`.
+- Convert each five-base context to the categorical predictors expected by the model.
+- Use the bundled model and example CSV to run predictions without training a model.
+
+## Installation
 
 ```r
 install.packages("remotes")
 remotes::install_github("Trajectory614/m6APrediction")
-library(m6APrediction)
 ```
 
-## 批量预测
+## Single-site prediction
 
 ```r
 library(m6APrediction)
-ml_fit <- readRDS(system.file("extdata", "rf_fit.rds", package="m6APrediction", mustWork=TRUE))
-feature_df <- read.csv(system.file("extdata", "m6A_input_example.csv", package="m6APrediction", mustWork=TRUE))
-prediction_multiple(ml_fit, feature_df[1:3, ], positive_threshold=0.6)
+
+model <- readRDS(system.file("extdata", "rf_fit.rds",
+                            package = "m6APrediction", mustWork = TRUE))
+result <- prediction_single(
+  model,
+  gc_content = 0.6,
+  RNA_type = "mRNA",
+  RNA_region = "CDS",
+  exon_length = 12,
+  distance_to_junction = 5,
+  evolutionary_conservation = 0.8,
+  DNA_5mer = "GGACA"
+)
+result
 ```
 
-## 单条预测（可独立运行）
+The bundled model returns a score of `"0.528"` and a status of `"Positive"` for this example.
+
+## Batch prediction
 
 ```r
 library(m6APrediction)
-ml_fit <- readRDS(system.file("extdata", "rf_fit.rds", package="m6APrediction", mustWork=TRUE))
-prediction_single(ml_fit, 0.6, "mRNA", "CDS", 12, 5, 0.8, "GGACA", 0.5)
+
+model <- readRDS(system.file("extdata", "rf_fit.rds",
+                            package = "m6APrediction", mustWork = TRUE))
+features <- read.csv(system.file("extdata", "m6A_input_example.csv",
+                                 package = "m6APrediction", mustWork = TRUE))
+prediction_multiple(model, head(features, 3), positive_threshold = 0.6)
 ```
 
-## 输入和结果
+## Input requirements
 
-CSV 必须有 gc_content、RNA_type、RNA_region、exon_length、distance_to_junction、evolutionary_conservation、DNA_5mer 七列。四个连续特征为有限数值；长度与距离已作 log2 转换，不要再转换。RNA_type 为 mRNA/lincRNA/lncRNA/pseudogene；RNA_region 为 CDS/intron/3'UTR/5'UTR。DNA_5mer 为五个大写 A/T/C/G 字符，训练数据中心碱基为 A。
+Read the CSV into a nonempty data frame with the following case-sensitive column names. Supply the same seven features as individual values for a single-site prediction. Required fields must have no missing values.
 
-批量函数保留输入列，增加数值 predicted_m6A_prob 和字符 predicted_m6A_status；单条函数返回同名的两个元素组成的字符向量，计算时须显式 as.numeric()。仅概率严格大于阈值时为 Positive。概率是森林投票比例，不代表经过独立校准的临床概率。
+| Field | Accepted input |
+| --- | --- |
+| `gc_content` | Finite numeric value representing GC content. |
+| `RNA_type` | `mRNA`, `lincRNA`, `lncRNA`, or `pseudogene`. |
+| `RNA_region` | `CDS`, `intron`, `3'UTR`, or `5'UTR`. |
+| `exon_length` | Finite numeric value on the log2 scale used in training. |
+| `distance_to_junction` | Finite numeric value on the log2 scale used in training. |
+| `evolutionary_conservation` | Finite numeric value representing evolutionary conservation. |
+| `DNA_5mer` | Exactly five uppercase bases drawn from A, T, C, and G. The training contexts had A at the center. |
 
-本地 Practical 5 模型的前三行概率为 0.610、0.014、0.180；以上单条示例为 0.528。与课程参考模型数值不同，不修改模型来迎合参考答案。100 行示例仅验证软件运行，不能用来证明独立预测性能。
+Supply length and distance values already transformed as in the training data. The prediction functions apply no further numerical transformation. RNA type and region must match the listed category labels exactly.
 
-## 课程背景：Practical 3 的 ROC 与 PRC
+## Output interpretation
 
-下图来自 **Practical 3 作业 Task 2** 的原始 `precrec` 输出。该随机森林使用 `m6A_imbalanced.csv` 的 38,444 行训练，在同一数据来源中随机留出的 9,611 行上评价（2,273 阳性、7,338 阴性）。原作业记录的 AUROC 为 0.8864，AUPRC 为 0.7042。
+- `predicted_m6A_prob` is the fitted forest's vote fraction for the `Positive` class. It should be interpreted as a model score, not as an independently calibrated probability.
+- `predicted_m6A_status` is `Positive` if the score is strictly greater than `positive_threshold`, and `Negative` otherwise. The threshold defaults to 0.5 and accepts a finite numeric value from 0 to 1 inclusive.
 
-![Practical 3 随机森林在留出测试集上的 ROC 与 Precision–Recall 曲线](figures/practical3-holdout-roc-prc.png)
+`prediction_multiple()` returns the input data frame with a numeric score column and a character status column. Existing columns with those output names are replaced. `prediction_single()` returns a two-element named character vector. Use `as.numeric(result[["predicted_m6A_prob"]])` to convert the single-site score to a number.
 
-**这些结果仅适用于 Practical 3 作业模型。** 包内 `rf_fit.rds` 来自 Practical 5：它使用全部 48,055 行训练，并额外纳入 `nt_pos3`。因此，上图中的 9,611 行也参与了包内模型训练，不能用作当前 `m6APrediction` 模型的独立性能验证。
+## Model information
 
-此仓库尚未发布。
+The package includes `rf_fit.rds`, the 500-tree random forest fitted in Practical 5. The model was trained on all 48,055 rows of the course dataset and uses five position-specific nucleotide features, including `nt_pos3`. Load it with `readRDS(system.file(...))` as shown above and pass it to either prediction function.
+
+## Historical ROC and precision–recall curves
+
+The original figure below comes from Practical 3, Assignment Task 2. That random forest was fitted on 38,444 rows and evaluated with `precrec` on 9,611 held-out rows (2,273 positive and 7,338 negative). The Practical 3 assignment reported an AUROC of **0.8864** and an AUPRC of **0.7042**.
+
+![ROC and precision–recall curves for the Practical 3 random forest on its held-out test set](figures/practical3-holdout-roc-prc.png)
+
+The Practical 5 model bundled here was fitted on all 48,055 rows, including the 9,611 rows held out in Practical 3, and uses the additional feature `nt_pos3`. The displayed metrics therefore apply only to the Practical 3 model and provide no independent test of the bundled model.
+
+## Limitations
+
+The 100-row example CSV demonstrates the input format and prediction workflow. It was sampled from the training data. This repository provides no independent test results for the bundled model, and performance on new datasets remains unestablished here.
