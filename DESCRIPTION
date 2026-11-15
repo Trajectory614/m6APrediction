@@ -1,0 +1,14 @@
+Package: m6APrediction
+Title: Predict RNA Methylation Sites with a Fitted Random Forest
+Version: 1.0.0
+Authors@R: person("Minghao", "Pang",
+    email = "298566552+Trajectory614@users.noreply.github.com",
+    role = c("aut", "cre"))
+Description: Applies an existing random forest classifier to sequence contexts
+    and transcript features to produce m6A vote fractions and threshold calls.
+    Includes a fitted teaching model and example input data.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 3.5.0), randomForest
+Imports: stats
+Config/roxygen2/version: 8.1.1
